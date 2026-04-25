@@ -26,7 +26,8 @@ export async function initEngine() {
 
   try {
     /* Dynamic ES6 import — works in browser and on Vercel */
-    const { default: initWasm } = await import("/beatlab.js");
+    /* webpackIgnore: true */
+    const { default: initWasm } = await import(/* webpackIgnore: true */ "/beatlab.js");
     Module = await initWasm();
 
     synthPtr     = Module._malloc(1024);
