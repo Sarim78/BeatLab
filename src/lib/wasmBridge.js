@@ -7,9 +7,6 @@
 let Module = null;
 let initialized = false;
 
-/* ─────────────────────────────────────────
-   Pointers — allocated once on the WASM heap
-───────────────────────────────────────── */
 let synthPtr      = null;
 let sequencerPtr  = null;
 let mixerPtr      = null;
@@ -20,51 +17,60 @@ const INSTRUMENT_COUNT = 4;
 const STEP_COUNT       = 16;
 
 /* ─────────────────────────────────────────
-   Load Emscripten glue via <script> tag
-   Most reliable way to get it into global scope
+   Load WASM module via fetch + eval
+   MODULARIZE=1 means the factory is returned
+   as a value, not assigned to window — so we
+   eval the script and capture the return value
 ───────────────────────────────────────── */
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) {
-      resolve();
-      return;
-    }
-    const script = document.createElement("script");
-    script.src     = src;
-    script.onload  = resolve;
-    script.onerror = () =>
-      reject(new Error(
-        `Failed to load ${src} — run 'cd engine && make' to compile the C engine first`
-      ));
-    document.head.appendChild(script);
-  });
+async function loadBeatLabEngine() {
+  const res = await fetch("/beatlab.js");
+  if (!res.ok) {
+    throw new Error(
+      `beatlab.js not found (HTTP ${res.status}) — run 'cd engine && make' first`
+    );
+  }
+
+  const scriptText = await res.text();
+
+  /* Wrap in an async IIFE that returns the factory function */
+  const factory = new Function(`
+    var module = { exports: {} };
+    var exports = module.exports;
+    ${scriptText}
+    return module.exports;
+  `)();
+
+  /* factory might be the function itself or module.exports.default */
+  const EngineFactory =
+    typeof factory === "function"
+      ? factory
+      : typeof factory.default === "function"
+      ? factory.default
+      : null;
+
+  if (!EngineFactory) {
+    throw new Error(
+      "Could not find BeatLabEngine factory — check Makefile EXPORT_NAME and MODULARIZE flags"
+    );
+  }
+
+  return await EngineFactory();
 }
 
 /* ─────────────────────────────────────────
-   Load and initialize the WASM module
+   Initialize the engine
 ───────────────────────────────────────── */
 export async function initEngine() {
   if (initialized) return true;
 
   try {
-    /* Inject beatlab.js — Emscripten sets window.BeatLabEngine */
-    await loadScript("/beatlab.js");
+    Module = await loadBeatLabEngine();
 
-    if (typeof window.BeatLabEngine !== "function") {
-      throw new Error(
-        "window.BeatLabEngine not found — check Makefile EXPORT_NAME matches 'BeatLabEngine'"
-      );
-    }
-
-    Module = await window.BeatLabEngine();
-
-    /* Allocate structs on the WASM heap */
     synthPtr     = Module._malloc(1024);
     sequencerPtr = Module._malloc(1024);
     mixerPtr     = Module._malloc(512);
     outputBufPtr = Module._malloc(BUFFER_SIZE * 4);
 
-    /* Initialize each engine component */
     Module._synth_init(synthPtr);
     Module._sequencer_init(sequencerPtr);
     Module._mixer_init(mixerPtr);
