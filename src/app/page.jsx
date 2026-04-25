@@ -15,34 +15,26 @@ import {
   mixerToggleSolo,
 } from "../lib/wasmBridge";
 
-/* ─────────────────────────────────────────
-   Page — root layout
-───────────────────────────────────────── */
 export default function BeatLabPage() {
   const [bpm, setBpmState] = useState(120);
+  const [isMobile, setIsMobile] = useState(false);
 
-  /* Audio engine hook */
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
   const {
-    engineReady,
-    isPlaying,
-    currentStep,
-    levels,
-    play,
-    stop,
-    reset,
-    setBpm,
+    engineReady, isPlaying, currentStep, levels,
+    play, stop, reset, setBpm,
   } = useAudio();
 
-  /* Sequencer grid hook */
   const {
-    grid,
-    toggleStep,
-    clearPattern,
-    loadDefault,
-    INSTRUMENT_LABELS,
+    grid, toggleStep, clearPattern, loadDefault, INSTRUMENT_LABELS,
   } = useSequencer(engineReady);
 
-  /* Sync default pattern once engine is ready */
   useEffect(() => {
     if (engineReady) loadDefault();
   }, [engineReady]);
@@ -56,20 +48,17 @@ export default function BeatLabPage() {
     <main style={{
       minHeight: "100vh",
       background: "#0a0a0a",
-      padding: "24px",
+      padding: isMobile ? "12px" : "24px",
       boxSizing: "border-box",
     }}>
-
-      {/* Max width container */}
       <div style={{
         maxWidth: 900,
         margin: "0 auto",
         display: "flex",
         flexDirection: "column",
-        gap: 16,
+        gap: isMobile ? 10 : 16,
       }}>
 
-        {/* Transport bar */}
         <Transport
           isPlaying={isPlaying}
           engineReady={engineReady}
@@ -78,16 +67,16 @@ export default function BeatLabPage() {
           onReset={reset}
           bpm={bpm}
           onBpmChange={handleBpmChange}
+          isMobile={isMobile}
         />
 
-        {/* Visualizer */}
         <Visualizer
           isPlaying={isPlaying}
           currentStep={currentStep}
           levels={levels}
+          isMobile={isMobile}
         />
 
-        {/* Sequencer */}
         <Sequencer
           grid={grid}
           currentStep={currentStep}
@@ -97,13 +86,13 @@ export default function BeatLabPage() {
           onClear={clearPattern}
           onLoadDefault={loadDefault}
           INSTRUMENT_LABELS={INSTRUMENT_LABELS}
+          isMobile={isMobile}
         />
 
-        {/* Bottom row — Mixer + Pads */}
         <div style={{
           display: "grid",
-          gridTemplateColumns: "1fr auto",
-          gap: 16,
+          gridTemplateColumns: isMobile ? "1fr" : "1fr auto",
+          gap: isMobile ? 10 : 16,
           alignItems: "start",
         }}>
           <Mixer
@@ -114,9 +103,9 @@ export default function BeatLabPage() {
             onMuteToggle={(i)        => mixerToggleMute(i)}
             onSoloToggle={(i)        => mixerToggleSolo(i)}
             onMasterChange={(val)    => mixerSetMaster(val)}
+            isMobile={isMobile}
           />
-
-          <SamplePads engineReady={engineReady} />
+          <SamplePads engineReady={engineReady} isMobile={isMobile} />
         </div>
 
       </div>

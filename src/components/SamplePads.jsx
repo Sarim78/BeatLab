@@ -1,218 +1,130 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { synthTrigger, INSTRUMENTS } from "../lib/wasmBridge";
 
-/* ─────────────────────────────────────────
-   Constants
-───────────────────────────────────────── */
-const BAR_COUNT  = 32;
-const ACCENT     = "#e8ff47";
-const ACCENT_RGB = "232,255,71";
+const PADS = [
+  { id: 0, label: "KICK",    key: "Q", instrument: INSTRUMENTS.KICK,  color: "#e8ff47" },
+  { id: 1, label: "SNARE",   key: "W", instrument: INSTRUMENTS.SNARE, color: "#ff6b6b" },
+  { id: 2, label: "HI-HAT",  key: "E", instrument: INSTRUMENTS.HIHAT, color: "#4ecdc4" },
+  { id: 3, label: "CLAP",    key: "R", instrument: INSTRUMENTS.CLAP,  color: "#a78bfa" },
+  { id: 4, label: "KICK 2",  key: "A", instrument: INSTRUMENTS.KICK,  color: "#e8ff47" },
+  { id: 5, label: "SNARE 2", key: "S", instrument: INSTRUMENTS.SNARE, color: "#ff6b6b" },
+  { id: 6, label: "HAT 2",   key: "D", instrument: INSTRUMENTS.HIHAT, color: "#4ecdc4" },
+  { id: 7, label: "CLAP 2",  key: "F", instrument: INSTRUMENTS.CLAP,  color: "#a78bfa" },
+];
 
-/* ─────────────────────────────────────────
-   Visualizer Component
-   Canvas-based animated bar visualizer
-   reacts to beat steps and VU levels
-───────────────────────────────────────── */
-export default function Visualizer({ isPlaying, currentStep, levels }) {
-  const canvasRef  = useRef(null);
-  const barsRef    = useRef(Array(BAR_COUNT).fill(0));
-  const rafRef     = useRef(null);
-  const frameRef   = useRef(0);
+function Pad({ label, keyHint, color, active, onTrigger, isMobile }) {
+  return (
+    <button
+      onMouseDown={onTrigger}
+      onTouchStart={(e) => { e.preventDefault(); onTrigger(); }}
+      style={{
+        width: "100%", aspectRatio: "1", borderRadius: 8, border: "1px solid",
+        borderColor: active ? color : "#252525",
+        background: active
+          ? `radial-gradient(circle at 40% 35%, ${color}33, ${color}11)`
+          : "linear-gradient(145deg, #1e1e1e 0%, #141414 100%)",
+        cursor: "pointer", position: "relative",
+        display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center",
+        gap: isMobile ? 3 : 6,
+        transition: "all 0.06s ease",
+        boxShadow: active ? `0 0 16px ${color}44` : "none",
+        transform: active ? "scale(0.95)" : "scale(1)",
+        userSelect: "none", WebkitUserSelect: "none",
+        touchAction: "none",
+      }}
+    >
+      <div style={{
+        fontFamily: "'Courier New', monospace",
+        fontSize: isMobile ? 8 : 10,
+        fontWeight: 700, color: active ? color : "#444",
+        letterSpacing: "0.1em",
+      }}>
+        {label}
+      </div>
+      {!isMobile && (
+        <div style={{
+          fontFamily: "'Courier New', monospace",
+          fontSize: 9, color: active ? `${color}99` : "#2a2a2a",
+        }}>
+          [{keyHint}]
+        </div>
+      )}
+      {active && (
+        <div style={{
+          position: "absolute", bottom: 6, width: 4, height: 4,
+          borderRadius: "50%", background: color,
+          boxShadow: `0 0 8px ${color}`,
+        }} />
+      )}
+    </button>
+  );
+}
+
+export default function SamplePads({ engineReady, isMobile }) {
+  const [activePads, setActivePads] = useState({});
+
+  const triggerPad = useCallback((pad) => {
+    if (!engineReady) return;
+    synthTrigger(pad.instrument);
+    setActivePads((prev) => ({ ...prev, [pad.id]: true }));
+    setTimeout(() => setActivePads((prev) => ({ ...prev, [pad.id]: false })), 120);
+  }, [engineReady]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-
-    const W = canvas.width  = canvas.offsetWidth;
-    const H = canvas.height = canvas.offsetHeight;
-
-    const draw = () => {
-      frameRef.current++;
-
-      /* ── Clear ── */
-      ctx.fillStyle = "#0e0e0e";
-      ctx.fillRect(0, 0, W, H);
-
-      /* ── Grid lines ── */
-      ctx.strokeStyle = "rgba(255,255,255,0.03)";
-      ctx.lineWidth = 1;
-      for (let y = H * 0.25; y < H; y += H * 0.25) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(W, y);
-        ctx.stroke();
-      }
-
-      /* ── Animate bars ── */
-      const peakLevel = levels
-        ? Math.max(...levels.map((l) => l ?? 0))
-        : 0;
-
-      /* Inject energy on beat */
-      if (isPlaying && frameRef.current % 2 === 0) {
-        for (let i = 0; i < BAR_COUNT; i++) {
-          /* Base noise floor */
-          const noise = isPlaying ? Math.random() * 0.08 : 0;
-          /* Beat pulse centered on bar groups matching current step */
-          const stepFraction = (currentStep ?? 0) / 16;
-          const barFraction  = i / BAR_COUNT;
-          const proximity    = 1 - Math.abs(barFraction - stepFraction);
-          const pulse        = isPlaying ? proximity * peakLevel * 0.6 : 0;
-          barsRef.current[i] = Math.min(1, barsRef.current[i] + noise + pulse);
-        }
-      }
-
-      /* Decay bars */
-      barsRef.current = barsRef.current.map((v) => Math.max(0, v * 0.88));
-
-      /* ── Draw bars ── */
-      const barW   = (W - BAR_COUNT + 1) / BAR_COUNT;
-      const margin = 1;
-
-      for (let i = 0; i < BAR_COUNT; i++) {
-        const barH  = barsRef.current[i] * (H - 16);
-        const x     = i * (barW + margin);
-        const y     = H - barH;
-        const alpha = 0.4 + barsRef.current[i] * 0.6;
-
-        /* Gradient per bar */
-        const grad = ctx.createLinearGradient(0, y, 0, H);
-        grad.addColorStop(0, `rgba(${ACCENT_RGB}, ${alpha})`);
-        grad.addColorStop(0.6, `rgba(${ACCENT_RGB}, ${alpha * 0.5})`);
-        grad.addColorStop(1, `rgba(${ACCENT_RGB}, 0.05)`);
-
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.roundRect(x, y, barW, barH, 2);
-        ctx.fill();
-
-        /* Peak cap */
-        if (barH > 4) {
-          ctx.fillStyle = ACCENT;
-          ctx.globalAlpha = alpha;
-          ctx.fillRect(x, y, barW, 2);
-          ctx.globalAlpha = 1;
-        }
-      }
-
-      /* ── Center line ── */
-      ctx.strokeStyle = `rgba(${ACCENT_RGB}, 0.06)`;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, H / 2);
-      ctx.lineTo(W, H / 2);
-      ctx.stroke();
-
-      /* ── Step indicator dots ── */
-      if (currentStep !== undefined) {
-        const dotSpacing = W / 16;
-        for (let s = 0; s < 16; s++) {
-          const dotX  = s * dotSpacing + dotSpacing / 2;
-          const isCur = s === currentStep && isPlaying;
-          ctx.beginPath();
-          ctx.arc(dotX, H - 8, isCur ? 3 : 1.5, 0, Math.PI * 2);
-          ctx.fillStyle = isCur
-            ? ACCENT
-            : "rgba(255,255,255,0.15)";
-          ctx.fill();
-          if (isCur) {
-            ctx.beginPath();
-            ctx.arc(dotX, H - 8, 6, 0, Math.PI * 2);
-            ctx.strokeStyle = `rgba(${ACCENT_RGB}, 0.3)`;
-            ctx.lineWidth = 1;
-            ctx.stroke();
-          }
-        }
-      }
-
-      /* ── BEATLAB watermark ── */
-      ctx.font = "700 10px 'Courier New'";
-      ctx.fillStyle = "rgba(255,255,255,0.04)";
-      ctx.textAlign = "right";
-      ctx.fillText("BEATLAB", W - 10, 18);
-
-      rafRef.current = requestAnimationFrame(draw);
+    const handleKeyDown = (e) => {
+      if (e.repeat) return;
+      const pad = PADS.find((p) => p.key === e.key.toUpperCase());
+      if (pad) triggerPad(pad);
     };
-
-    rafRef.current = requestAnimationFrame(draw);
-
-    /* Resize handler */
-    const onResize = () => {
-      canvas.width  = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
-    };
-    window.addEventListener("resize", onResize);
-
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-      window.removeEventListener("resize", onResize);
-    };
-  }, [isPlaying, currentStep, levels]);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [triggerPad]);
 
   return (
     <div style={{
-      padding: "0",
-      background: "#0e0e0e",
-      borderRadius: 12,
-      border: "1px solid #2a2a2a",
+      padding: isMobile ? "14px 12px" : "20px 24px",
+      background: "linear-gradient(180deg, #161616 0%, #111 100%)",
+      borderRadius: 12, border: "1px solid #2a2a2a",
       boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
-      overflow: "hidden",
-      position: "relative",
     }}>
-      {/* Header overlay */}
       <div style={{
-        position: "absolute",
-        top: 12,
-        left: 16,
-        fontFamily: "'Courier New', monospace",
-        fontSize: 10,
-        color: "#333",
-        letterSpacing: "0.2em",
-        zIndex: 1,
-        pointerEvents: "none",
-      }}>
-        VISUALIZER
-      </div>
-
-      {/* Status indicator */}
-      <div style={{
-        position: "absolute",
-        top: 14,
-        right: 16,
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        zIndex: 1,
-        pointerEvents: "none",
+        display: "flex", alignItems: "center",
+        justifyContent: "space-between", marginBottom: 12,
       }}>
         <div style={{
-          width: 6,
-          height: 6,
-          borderRadius: "50%",
-          background: isPlaying ? ACCENT : "#333",
-          boxShadow: isPlaying ? `0 0 8px rgba(${ACCENT_RGB}, 0.8)` : "none",
-          transition: "all 0.2s ease",
-        }} />
-        <span style={{
-          fontFamily: "'Courier New', monospace",
-          fontSize: 9,
-          color: "#333",
-          letterSpacing: "0.1em",
+          fontFamily: "'Courier New', monospace", fontSize: 10,
+          color: "#444", letterSpacing: "0.2em",
         }}>
-          {isPlaying ? "LIVE" : "IDLE"}
-        </span>
+          SAMPLE PADS
+        </div>
+        {!isMobile && (
+          <div style={{
+            fontFamily: "'Courier New', monospace", fontSize: 9,
+            color: "#2a2a2a", letterSpacing: "0.1em",
+          }}>
+            Q W E R · A S D F
+          </div>
+        )}
       </div>
 
-      <canvas
-        ref={canvasRef}
-        style={{
-          width: "100%",
-          height: 140,
-          display: "block",
-        }}
-      />
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)",
+        gap: isMobile ? 6 : 8,
+        width: isMobile ? "100%" : 220,
+      }}>
+        {PADS.map((pad) => (
+          <Pad
+            key={pad.id} label={pad.label} keyHint={pad.key}
+            color={pad.color} active={!!activePads[pad.id]}
+            onTrigger={() => triggerPad(pad)}
+            isMobile={isMobile}
+          />
+        ))}
+      </div>
     </div>
   );
 }
