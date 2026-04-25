@@ -17,54 +17,17 @@ const INSTRUMENT_COUNT = 4;
 const STEP_COUNT       = 16;
 
 /* ─────────────────────────────────────────
-   Load WASM module via fetch + eval
-   MODULARIZE=1 means the factory is returned
-   as a value, not assigned to window — so we
-   eval the script and capture the return value
-───────────────────────────────────────── */
-async function loadBeatLabEngine() {
-  const res = await fetch("/beatlab.js");
-  if (!res.ok) {
-    throw new Error(
-      `beatlab.js not found (HTTP ${res.status}) — run 'cd engine && make' first`
-    );
-  }
-
-  const scriptText = await res.text();
-
-  /* Wrap in an async IIFE that returns the factory function */
-  const factory = new Function(`
-    var module = { exports: {} };
-    var exports = module.exports;
-    ${scriptText}
-    return module.exports;
-  `)();
-
-  /* factory might be the function itself or module.exports.default */
-  const EngineFactory =
-    typeof factory === "function"
-      ? factory
-      : typeof factory.default === "function"
-      ? factory.default
-      : null;
-
-  if (!EngineFactory) {
-    throw new Error(
-      "Could not find BeatLabEngine factory — check Makefile EXPORT_NAME and MODULARIZE flags"
-    );
-  }
-
-  return await EngineFactory();
-}
-
-/* ─────────────────────────────────────────
    Initialize the engine
+   beatlab.js is compiled with EXPORT_ES6=1
+   so it exports a default async init function
 ───────────────────────────────────────── */
 export async function initEngine() {
   if (initialized) return true;
 
   try {
-    Module = await loadBeatLabEngine();
+    /* Dynamic ES6 import — works in browser and on Vercel */
+    const { default: initWasm } = await import("/beatlab.js");
+    Module = await initWasm();
 
     synthPtr     = Module._malloc(1024);
     sequencerPtr = Module._malloc(1024);

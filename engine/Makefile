@@ -41,15 +41,18 @@ EXPORTED_RUNTIME = \
 FLAGS = \
 	-O2 \
 	-s WASM=1 \
-	-s MODULARIZE=1 \
-	-s EXPORT_NAME="BeatLabEngine" \
 	-s EXPORTED_FUNCTIONS="[$(shell echo $(EXPORTED_FUNCTIONS) | tr ' ' ',')]" \
 	-s EXPORTED_RUNTIME_METHODS="[$(EXPORTED_RUNTIME)]" \
 	-s ALLOW_MEMORY_GROWTH=1 \
 	-s ENVIRONMENT="web" \
+	-s EXPORT_ES6=1 \
+	-s USE_ES6_IMPORT_META=0 \
 	-lm
 
+# ─────────────────────────────────────────
 # Targets
+# ─────────────────────────────────────────
+
 all: $(OUTPUT)
 
 $(OUTPUT): $(SOURCES)
