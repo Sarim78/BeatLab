@@ -1,6 +1,7 @@
 # ─────────────────────────────────────────
 # BeatLab — Emscripten Build Config
 # Compiles C audio engine to WebAssembly
+# Windows + Unix compatible
 # ─────────────────────────────────────────
 
 CC       = emcc
@@ -41,13 +42,24 @@ EXPORTED_RUNTIME = \
 FLAGS = \
 	-O2 \
 	-s WASM=1 \
+	-s EXPORT_ES6=1 \
+	-s USE_ES6_IMPORT_META=0 \
 	-s EXPORTED_FUNCTIONS="[$(shell echo $(EXPORTED_FUNCTIONS) | tr ' ' ',')]" \
 	-s EXPORTED_RUNTIME_METHODS="[$(EXPORTED_RUNTIME)]" \
 	-s ALLOW_MEMORY_GROWTH=1 \
 	-s ENVIRONMENT="web" \
-	-s EXPORT_ES6=1 \
-	-s USE_ES6_IMPORT_META=0 \
 	-lm
+
+# ─────────────────────────────────────────
+# Detect OS
+# ─────────────────────────────────────────
+ifeq ($(OS),Windows_NT)
+  RM = del /Q /F
+  FIX_PATH = $(subst /,\,$1)
+else
+  RM = rm -f
+  FIX_PATH = $1
+endif
 
 # ─────────────────────────────────────────
 # Targets
@@ -61,7 +73,7 @@ $(OUTPUT): $(SOURCES)
 	@echo "Built: $(WASM_OUT)"
 
 clean:
-	rm -f $(OUTPUT) $(WASM_OUT)
+	$(RM) $(call FIX_PATH,$(OUTPUT)) $(call FIX_PATH,$(WASM_OUT))
 	@echo "Cleaned build artifacts"
 
 rebuild: clean all
