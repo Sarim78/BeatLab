@@ -26,9 +26,15 @@ export async function initEngine() {
   if (initialized) return true;
 
   try {
-    /* Dynamically import the Emscripten glue */
-    const BeatLabEngine = (await import("/beatlab.js")).default;
-    Module = await BeatLabEngine();
+    /* Fetch the Emscripten glue script at runtime — avoids webpack bundling issues */
+    const res = await fetch("/beatlab.js");
+    if (!res.ok) throw new Error(`beatlab.js not found (HTTP ${res.status}) — run 'cd engine && make' first`);
+    const scriptText = await res.text();
+
+    /* Evaluate the script in global scope so BeatLabEngine is available */
+    // eslint-disable-next-line no-new-func
+    await new Function(scriptText)();
+    Module = await window.BeatLabEngine();
 
     /* Allocate structs on the WASM heap */
     synthPtr     = Module._malloc(1024);   /* SynthState */
@@ -53,91 +59,43 @@ export async function initEngine() {
 /* ─────────────────────────────────────────
    Sequencer controls
 ───────────────────────────────────────── */
-export function sequencerPlay() {
-  Module._sequencer_play(sequencerPtr);
-}
+/* ─────────────────────────────────────────
+   Guard — skip call if engine not ready
+───────────────────────────────────────── */
+function ready() { return Module !== null && initialized; }
 
-export function sequencerStop() {
-  Module._sequencer_stop(sequencerPtr);
-}
-
-export function sequencerReset() {
-  Module._sequencer_reset(sequencerPtr);
-}
-
-export function sequencerSetBpm(bpm) {
-  Module._sequencer_set_bpm(sequencerPtr, bpm);
-}
-
-export function sequencerGetStep() {
-  return Module._sequencer_get_step(sequencerPtr);
-}
-
-export function sequencerToggleStep(instrument, step) {
-  return Module._sequencer_toggle_step(sequencerPtr, instrument, step);
-}
-
-export function sequencerSetStep(instrument, step, active) {
-  Module._sequencer_set_step(sequencerPtr, instrument, step, active ? 1 : 0);
-}
-
-export function sequencerClearPattern() {
-  Module._sequencer_clear_pattern(sequencerPtr);
-}
-
-/* Advance sequencer by dt seconds — returns 1 if new step reached */
-export function sequencerTick(dt) {
-  return Module._sequencer_tick(sequencerPtr, synthPtr, dt);
-}
+export function sequencerPlay()                        { if (!ready()) return;    Module._sequencer_play(sequencerPtr); }
+export function sequencerStop()                        { if (!ready()) return;    Module._sequencer_stop(sequencerPtr); }
+export function sequencerReset()                       { if (!ready()) return;    Module._sequencer_reset(sequencerPtr); }
+export function sequencerSetBpm(bpm)                   { if (!ready()) return;    Module._sequencer_set_bpm(sequencerPtr, bpm); }
+export function sequencerGetStep()                     { if (!ready()) return 0;  return Module._sequencer_get_step(sequencerPtr); }
+export function sequencerToggleStep(instrument, step)  { if (!ready()) return 0;  return Module._sequencer_toggle_step(sequencerPtr, instrument, step); }
+export function sequencerSetStep(instrument, step, active) { if (!ready()) return; Module._sequencer_set_step(sequencerPtr, instrument, step, active ? 1 : 0); }
+export function sequencerClearPattern()                { if (!ready()) return;    Module._sequencer_clear_pattern(sequencerPtr); }
+export function sequencerTick(dt)                      { if (!ready()) return 0;  return Module._sequencer_tick(sequencerPtr, synthPtr, dt); }
 
 /* ─────────────────────────────────────────
    Synth controls
 ───────────────────────────────────────── */
-export function synthTrigger(instrument) {
-  Module._synth_trigger(synthPtr, instrument);
-}
-
-export function synthReset() {
-  Module._synth_reset(synthPtr);
-}
+export function synthTrigger(instrument) { if (!ready()) return; Module._synth_trigger(synthPtr, instrument); }
+export function synthReset()             { if (!ready()) return; Module._synth_reset(synthPtr); }
 
 /* Generate next audio buffer — returns Float32Array of BUFFER_SIZE samples */
 export function synthProcess() {
+  if (!ready()) return new Float32Array(BUFFER_SIZE);
   Module._synth_process(synthPtr, outputBufPtr);
-  /* Read float32 samples from WASM heap */
-  return new Float32Array(
-    Module.HEAPF32.buffer,
-    outputBufPtr,
-    BUFFER_SIZE
-  );
+  return new Float32Array(Module.HEAPF32.buffer, outputBufPtr, BUFFER_SIZE);
 }
 
 /* ─────────────────────────────────────────
    Mixer controls
 ───────────────────────────────────────── */
-export function mixerSetVolume(channel, volume) {
-  Module._mixer_set_volume(mixerPtr, channel, volume);
-}
-
-export function mixerSetPan(channel, pan) {
-  Module._mixer_set_pan(mixerPtr, channel, pan);
-}
-
-export function mixerToggleMute(channel) {
-  return Module._mixer_toggle_mute(mixerPtr, channel);
-}
-
-export function mixerToggleSolo(channel) {
-  return Module._mixer_toggle_solo(mixerPtr, channel);
-}
-
-export function mixerSetMaster(volume) {
-  Module._mixer_set_master(mixerPtr, volume);
-}
-
-export function mixerGetLevel(channel) {
-  return Module._mixer_get_level(mixerPtr, channel);
-}
+export function mixerSetVolume(channel, volume) { if (!ready()) return; Module._mixer_set_volume(mixerPtr, channel, volume); }
+export function mixerSetPan(channel, pan)       { if (!ready()) return; Module._mixer_set_pan(mixerPtr, channel, pan); }
+export function mixerToggleMute(channel)        { if (!ready()) return 0; return Module._mixer_toggle_mute(mixerPtr, channel); }
+export function mixerToggleSolo(channel)        { if (!ready()) return 0; return Module._mixer_toggle_solo(mixerPtr, channel); }
+export function mixerSetMaster(volume)          { if (!ready()) return; Module._mixer_set_master(mixerPtr, volume); }
+export function mixerGetLevel(channel)          { if (!ready()) return 0; return Module._mixer_get_level(mixerPtr, channel); }
 
 /* ─────────────────────────────────────────
    Constants (mirrored from C)
