@@ -4,7 +4,7 @@ A browser-based music production dashboard powered by a C audio engine compiled 
 
 ---
 
-## ⚠️ Project Notice
+## Project Notice
 
 > **This is a portfolio/personal project only.** It is not intended for production use, commercial deployment, or distribution. Built for learning and demonstration purposes.
 
